@@ -1,0 +1,143 @@
+{
+  "checked_at": "2026-10-23T00:45:31.914841+08:00",
+  "start": "2026-10-02",
+  "end": "2026-10-22",
+  "results": [
+    {
+      "case": "etf_catalog",
+      "status": "passed",
+      "count": 1713,
+      "sample": {}
+    },
+    {
+      "case": "etf_daily",
+      "status": "passed",
+      "count": 11,
+      "sample": {
+        "source": "tencent",
+        "datetime": "2026-10-22"
+      }
+    },
+    {
+      "case": "etf_quote",
+      "status": "passed",
+      "count": 1,
+      "sample": {
+        "symbol": "sz159941",
+        "name": "纳指ETF广发",
+        "last": 1.682,
+        "source": "tencent",
+        "quote_time": "2026-10-22 16:14:15",
+        "code": "159941"
+      }
+    },
+    {
+      "case": "fred",
+      "status": "credential_required",
+      "environment": "FRED_API_KEY"
+    },
+    {
+      "case": "fund_nav",
+      "status": "passed",
+      "count": 10,
+      "sample": {
+        "source": "eastmoney_mobile",
+        "valuation_date": "2026-10-21",
+        "nav": 1.493,
+        "code": "159941"
+      }
+    },
+    {
+      "case": "fund_nav_web",
+      "status": "passed",
+      "count": 10,
+      "sample": {
+        "source": "eastmoney_web",
+        "valuation_date": "2026-10-21",
+        "nav": 1.493,
+        "code": "159941"
+      }
+    },
+    {
+      "case": "index_daily",
+      "status": "passed",
+      "count": 11,
+      "sample": {
+        "source": "tencent",
+        "datetime": "2026-10-22"
+      }
+    },
+    {
+      "case": "index_quote",
+      "status": "passed",
+      "count": 1,
+      "sample": {
+        "symbol": "sh000001",
+        "name": "上证指数",
+        "last": 3658.03,
+        "source": "tencent",
+        "quote_time": "2026-10-22 16:15:00",
+        "code": "000001"
+      }
+    },
+    {
+      "case": "mixed_quotes",
+      "status": "passed",
+      "count": 3,
+      "sample": {
+        "symbol": "sh000001",
+        "name": "上证指数",
+        "last": 3658.03,
+        "source": "tencent",
+        "quote_time": "2026-10-22 16:15:00",
+        "code": "000001"
+      }
+    },
+    {
+      "case": "sina_daily",
+      "status": "passed",
+      "count": 11,
+      "sample": {
+        "source": "sina",
+        "datetime": "2026-10-22"
+      }
+    },
+    {
+      "case": "sina_minute",
+      "status": "passed",
+      "count": 396,
+      "sample": {
+        "source": "sina",
+        "datetime": "2026-10-22 15:00:00"
+      }
+    },
+    {
+      "case": "sse_shares",
+      "status": "passed",
+      "count": 924,
+      "sample": {
+        "source": "sse",
+        "shares": 118090000.0,
+        "code": "589990"
+      }
+    },
+    {
+      "case": "stock_quote",
+      "status": "passed",
+      "count": 1,
+      "sample": {
+        "symbol": "sh600519",
+        "name": "贵州茅台",
+        "last": 1318.49,
+        "source": "tencent",
+        "quote_time": "2026-10-22 16:15:00",
+        "code": "600519"
+      }
+    },
+    {
+      "case": "twelvedata",
+      "status": "credential_required",
+      "environment": "TWELVE_DATA_API_KEY"
+    }
+  ]
+}
