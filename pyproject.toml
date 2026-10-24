@@ -1,16 +1,44 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "a-share-data"
-version = "0.1.0"
+name = "ashare-data-lite"
+dynamic = ["version"]
 description = "使用 Python 标准库直接获取证券行情、基金净值与宏观序列"
 readme = "README.md"
 requires-python = ">=3.10"
-license = {file = "LICENSE"}
+license = "MIT"
+license-files = ["LICENSE"]
 dependencies = []
+keywords = ["ashare", "stock", "etf", "market-data", "finance"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Operating System :: OS Independent",
+]
+
+[project.urls]
+Homepage = "https://github.com/zhangjw777/ashare-data-lite"
+Repository = "https://github.com/zhangjw777/ashare-data-lite"
+Documentation = "https://github.com/zhangjw777/ashare-data-lite/blob/main/docs/api.md"
+Issues = "https://github.com/zhangjw777/ashare-data-lite/issues"
+
+[project.optional-dependencies]
+dev = ["build>=1.2", "twine>=6", "PyYAML>=6"]
+
+[tool.setuptools.dynamic]
+version = {attr = "ashare_data.__version__"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
+include = ["ashare_data*"]
+
+[tool.setuptools.package-data]
+ashare_data = ["py.typed"]
 

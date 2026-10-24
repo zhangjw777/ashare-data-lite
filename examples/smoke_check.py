@@ -3,6 +3,7 @@
 import json
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import is_dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -22,14 +23,14 @@ def main():
         "etf_daily": lambda: client.get_etf_history("159941", start, end),
         "index_daily": lambda: client.get_index_history("000001", start, end),
         "sina_daily": lambda: client.get_etf_history(
-            "159941", start, end, source="sina", adjust=""
+            "159941", start, end, sources=["sina"]
         ),
-        "sina_minute": lambda: client.get_etf_history(
-            "159941", start, end, source="sina", adjust="", scale=5
-        ),
+        "sina_minute": lambda: client.get_etf_history("159941", start, end, scale=5),
         "etf_catalog": client.get_etf_catalog,
         "fund_nav": lambda: client.get_fund_nav_history("159941", start, end),
-        "fund_nav_web": lambda: client._eastmoney._history("web", "159941", start, end),
+        "fund_nav_web": lambda: client.get_fund_nav_history(
+            "159941", start, end, sources=["eastmoney_web"]
+        ),
         "sse_shares": lambda: client.get_sse_etf_shares(end),
     }
     credentials = []
@@ -54,28 +55,27 @@ def main():
             if not value:
                 return {"case": name, "status": "empty", "count": 0}
             if isinstance(value, list):
-                failures = [
-                    row for row in value if isinstance(row, dict) and "error" in row
-                ]
+                failures = [row for row in value if getattr(row, "error", None)]
                 if failures:
                     return {
                         "case": name,
                         "status": "failed",
                         "error": "批量行情缺失",
-                        "items": failures,
+                        "items": [row.to_dict() for row in failures],
                     }
                 sample = value[-1]
             else:
                 sample = value
+            if is_dataclass(sample):
+                sample = sample.to_dict()
             if isinstance(sample, dict):
                 keys = (
                     "symbol",
                     "name",
                     "last",
                     "source",
-                    "quote_time",
-                    "datetime",
-                    "valuation_date",
+                    "timestamp",
+                    "date",
                     "nav",
                     "shares",
                     "code",
@@ -84,9 +84,7 @@ def main():
             return {
                 "case": name,
                 "status": "passed",
-                "count": 1
-                if isinstance(value, dict) and "symbol" in value
-                else len(value),
+                "count": 1 if is_dataclass(value) else len(value),
                 "sample": sample,
             }
         except Exception as exc:

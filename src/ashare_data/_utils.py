@@ -2,6 +2,7 @@
 
 import math
 import re
+from collections.abc import Sequence
 from datetime import date, datetime, timedelta, timezone
 
 from .exceptions import ConfigurationError, InvalidCodeError
@@ -72,3 +73,15 @@ def fund_code(code):
 def sorted_rows(rows, key="datetime"):
     unique = {row[key]: row for row in rows}
     return [unique[value] for value in sorted(unique)]
+
+
+def source_order(sources, default, allowed):
+    """验证并保留来源优先顺序。"""
+    values = default if sources is None else sources
+    if isinstance(values, str) or not isinstance(values, Sequence):
+        raise ConfigurationError("sources 使用按优先级排列的来源列表")
+    if not values or any(
+        not isinstance(value, str) or value not in allowed for value in values
+    ):
+        raise ConfigurationError("sources 可用来源：" + ", ".join(allowed))
+    return tuple(dict.fromkeys(values))

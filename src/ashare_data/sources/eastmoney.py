@@ -3,7 +3,7 @@
 import threading
 import time
 
-from .._utils import date_range, date_text, fund_code, number, sorted_rows
+from .._utils import date_range, date_text, fund_code, number, sorted_rows, source_order
 from ..exceptions import DataFormatError, MarketDataError
 from ..fallback import first_success
 
@@ -11,7 +11,6 @@ MOBILE_URL = "https://fundmobapi.eastmoney.com/FundMNewApi/FundMNHisNetList"
 WEB_URL = "https://api.fund.eastmoney.com/f10/lsjz"
 MOBILE_HEADERS = {
     "User-Agent": "EMProjJijin/6.2.8 (iPhone; iOS 13.6; Scale/2.00)",
-    "GTOKEN": "98B423068C1F4DEF9842F82ADF08C5db",
     "clientInfo": "ttjj-iPhone10,1-iOS-iOS13.6",
     "Referer": "https://mpservice.com/516939c37bdb4ba2b1138c50cf69a2e1/release/pages/FundHistoryNetWorth",
 }
@@ -83,7 +82,6 @@ class EastmoneySource:
                         "valuation_date": day,
                         "nav": nav,
                         "source": source,
-                        "raw": row,
                     }
                 )
         return sorted_rows(result, "valuation_date")
@@ -134,7 +132,12 @@ class EastmoneySource:
             previous = batch
         raise DataFormatError("东方财富净值达到 1000 页请求上限")
 
-    def nav_history(self, code, start=None, end=None):
+    def nav_history(self, code, start=None, end=None, *, sources=None):
+        order = source_order(
+            sources,
+            ("eastmoney_mobile", "eastmoney_web"),
+            ("eastmoney_mobile", "eastmoney_web"),
+        )
         code = fund_code(code)
         start, end = date_range(start, end)
 
@@ -150,9 +153,8 @@ class EastmoneySource:
                     )
                 raise
 
-        return first_success(
-            [
-                ("eastmoney_mobile", mobile),
-                ("eastmoney_web", lambda: self._history("web", code, start, end)),
-            ]
-        )
+        fetchers = {
+            "eastmoney_mobile": mobile,
+            "eastmoney_web": lambda: self._history("web", code, start, end),
+        }
+        return first_success([(name, fetchers[name]) for name in order])

@@ -1,139 +1,107 @@
-# a-share-data
+# ashare-data-lite
 
-个人行情接口库，Python 3.10+，运行代码使用 Python 标准库。统一入口返回字典和列表，数据来源与请求细节集中在 `sources/`。
+轻量、免费的 Python 行情工具，提供沪深股票、ETF、指数、基金净值及海外市场数据。Python 3.10+，运行代码使用标准库，采用 MIT 许可证。
 
-```powershell
-python -m pip install -e F:\FinancialData\a-share-data
+## 安装与使用
+
+从 PyPI 安装：
+
+```shell
+pip install ashare-data-lite
 ```
 
 ```python
-from ashare_data import get_etf_quote
+from ashare_data import get_etf_quote, get_etf_history, get_fund_nav_history
 
 quote = get_etf_quote("159941")
-print(quote)
-print(quote["last"])
-print(quote["etf"]["iopv"])
+print(quote.name, quote.last, quote.iopv)
+
+bars = get_etf_history("159941", "2026-09-01", "2026-10-23")
+print(bars[-1].timestamp, bars[-1].close, bars[-1].volume)
+
+nav = get_fund_nav_history("159941", "2026-09-01", "2026-10-23")
+print(nav[-1].date, nav[-1].nav)
 ```
 
-ETF 指交易所交易基金；IOPV 指基金份额参考净值。接口返回的百分率以百分数表示，`2.5` 表示 `2.5%`。
+ETF 指交易所交易基金，IOPV 指基金份额参考净值。查询结果采用 dataclass，支持属性访问和 `to_dict()`。股票数量以股计，ETF 数量以份计；百分率 `2.5` 表示 `2.5%`。
 
-## 公开接口
+## 支持的数据
 
-| 数据 | 函数 | 默认来源 |
-| --- | --- | --- |
-| 单只 / 批量股票行情 | `get_stock_quote` / `get_stock_quotes` | 腾讯 |
-| 单只 / 批量 ETF 行情 | `get_etf_quote` / `get_etf_quotes` | 腾讯 |
-| 单只 / 批量指数行情 | `get_index_quote` / `get_index_quotes` | 腾讯 |
-| 混合证券行情 | `get_quote` / `get_quotes` | 腾讯 |
-| 股票 / ETF / 指数历史 | `get_stock_history` / `get_etf_history` / `get_index_history` | 腾讯日线，可选新浪 |
-| 基金历史单位净值 | `get_fund_nav_history` | 东方财富移动端 → 网页 |
-| ETF 代码与名称目录 | `get_etf_catalog` | 新浪 |
-| 上交所 ETF 份额 | `get_sse_etf_shares` | 上交所 JSON |
-| 经济与市场序列 | `get_fred_series` / `get_vix_history` | FRED HTTPS |
-| 海外 K 线 / 完整日线 | `get_twelve_bars` / `get_twelve_daily_history` | Twelve Data HTTPS |
+| 数据 | 入口 |
+| --- | --- |
+| 股票、ETF、指数实时行情及五档买卖报价 | `get_stock_quote`、`get_etf_quote`、`get_index_quote`，批量方法以 `_quotes` 结尾 |
+| 日线与 5 / 15 / 30 分钟 K 线 | `get_stock_history`、`get_etf_history`、`get_index_history` |
+| 基金历史单位净值 | `get_fund_nav_history` |
+| ETF 目录、上交所 ETF 份额 | `get_etf_catalog`、`get_sse_etf_shares` |
+| FRED 经济序列及 VIX | `get_fred_series`、`get_vix_history` |
+| Twelve Data 海外 K 线 | `get_twelve_bars`、`get_twelve_daily_history` |
 
-所有函数均可从 `ashare_data` 导入；`MarketClient` 提供相同方法。实时行情统一请求腾讯，最多 50 个代码一批，按首次出现的输入顺序返回。
+沪深行情、基金净值、目录和份额可直接查询。FRED 和 Twelve Data 使用服务商账户密钥，支持环境变量 `FRED_API_KEY`、`TWELVE_DATA_API_KEY`。
 
-## 常用调用
+## 自动降级
+
+日线默认原始价格，依次尝试腾讯、新浪；基金单位净值依次尝试东方财富移动端、网页。使用默认配置即可查询，也可设置来源优先级：
 
 ```python
-from ashare_data import (
-    get_stock_quote, get_index_quote, get_etf_quotes,
-    get_etf_history, get_index_history, get_fund_nav_history,
+bars = get_etf_history(
+    "159941", "2026-10-01", "2026-10-23",
+    sources=["sina", "tencent"],
 )
+```
 
-stock = get_stock_quote("600519")
-index = get_index_quote("000001")
+降级过程保持周期与复权方式一致。分钟线由新浪提供；前复权、后复权日线由腾讯提供。来源的覆盖日期与账户权限决定实际可用数据范围。
+
+## 批量、序列化与异步
+
+```python
+import json
+from ashare_data import get_etf_quotes
+
 quotes = get_etf_quotes(["159941", "513100"])
-daily = get_etf_history("159941", "2026-09-01", "2026-10-21")
-index_daily = get_index_history("000001", "2026-09-01", "2026-10-21")
-nav = get_fund_nav_history("159941", "2026-09-01", "2026-10-21")
-minute = get_etf_history(
-    "159941", "2026-10-21", "2026-10-21",
-    source="sina", adjust="", scale=5,
-)
+for quote in quotes:
+    print(quote.symbol, quote.last, quote.error)
+
+print(json.dumps(quotes[0].to_dict(), ensure_ascii=False))
 ```
-
-股票入口的 `000001` 表示深市平安银行，指数入口的 `000001` 表示上证指数。代码支持 `159941`、`sz159941`、`159941.SZ`；混合行情中的指数使用明确前缀，例如 `sh000001`、`sz399001`。代码以字符串传入。
-
-## 客户端配置
-
-```python
-from ashare_data import MarketClient, configure
-
-configure(timeout=10, retries=1)
-client = MarketClient(timeout=15, fred_api_key="YOUR_KEY", twelve_api_key="YOUR_KEY")
-vix = client.get_vix_history("2026-10-01", "2026-10-21")
-bars = client.get_twelve_daily_history("SPY", "2026-01-01", "2026-10-21")
-```
-
-账户密钥也可设置为环境变量 `FRED_API_KEY`、`TWELVE_DATA_API_KEY`，或在对应方法传入 `api_key=`。客户端默认请求超时 10 秒，网络异常及 HTTP 502/503/504 默认重试 1 次。HTTP 代理、TLS 证书验证使用 Python `urllib` 与操作系统配置。
-
-连续调用复用默认客户端。净值请求共享并发上限 2、0.25 秒请求间隔；移动端单次请求超时为 `min(timeout, 5)` 秒，移动端失败后冷却 60 秒，并立即尝试网页接口。403/429 的 `Retry-After` 可延长冷却；两个入口分别保存冷却状态。网页分页失败时，整个净值查询抛出异常。
-
-## 异步调用
 
 ```python
 import asyncio
 from ashare_data import AsyncMarketClient
 
 async def main():
-    client = AsyncMarketClient()
-    quotes, nav = await asyncio.gather(
-        client.get_etf_quotes(["159941", "513100"]),
-        client.get_fund_nav_history("159941", "2026-10-01", "2026-10-21"),
-    )
-    print(quotes)
-    print(nav)
+    client = AsyncMarketClient(timeout=10)
+    quotes = await client.get_etf_quotes(["159941", "513100"])
+    print(quotes[0].last)
 
 asyncio.run(main())
 ```
 
-异步客户端用 `asyncio.to_thread` 执行标准库网络请求；同一客户端的协程共享净值限速状态。单次请求由 `timeout` 约束，协程取消后已开始的线程请求会执行至完成或超时。
+同步客户端 `MarketClient` 与异步客户端 `AsyncMarketClient` 提供相同的方法和返回类型。完整参数、返回字段、单位及异常见 [API 文档](https://github.com/zhangjw777/ashare-data-lite/blob/main/docs/api.md)。
 
-## 返回值与异常
+## 数据来源与使用范围
 
-行情包含 `symbol`、`name`、`source`、`quote_time`、`last`、`prev_close`、`open`、`high`、`low`、`volume_lot`、`amount_yuan`、五档 `order_book`，以及 `etf`、`stock` 或 `index` 扩展。`raw_fields` 保留腾讯原始字段。批量查询中缺失的证券返回含 `error` 的字典；单只查询缺失行情时抛出 `QuoteNotFoundError`。
+实时行情来自腾讯；历史 K 线来自腾讯、新浪；基金净值来自东方财富；基金份额来自上交所；经济序列与海外行情来自 FRED、Twelve Data。数据源的覆盖范围、延迟、接口格式及访问额度可能变化，使用方应做好超时处理并校验关键数据。账户接口遵循对应服务商的套餐和调用限制。
 
-历史记录按 `datetime` 去重升序返回，包含 `trade_date`、开高低收、`volume`、`volume_unit`、`source`、`adjust`、`raw`。净值记录包含 `code`、`valuation_date`、`nav`、`source`、`raw`。份额记录包含 `code`、`date`、`shares`、`unit`、`source`、`raw`。JSON 数值缺失时使用 `None`；FRED 的缺失观测在序列结果中跳过。
+本项目的 MIT 许可证适用于程序代码。行情数据的使用、存储和再分发遵循各来源的使用条款；交易分析需要结合其他信息校验，并自行承担决策风险。
 
-异常统一继承 `MarketDataError`，包括 `InvalidCodeError`、`ConfigurationError`、`RequestError`、`DataFormatError`、`QuoteNotFoundError`、`AllSourcesFailedError`。净值两个来源都失败时，`AllSourcesFailedError.errors` 保存逐源异常。
+## 开发
 
-完整参数、请求地址、返回字段及覆盖范围见 [接口手册](docs/api.md)。
-
-## 开发与验证
-
-```powershell
-python -m pip install -e .
+```shell
+python -m pip install -e ".[dev]"
 python -m unittest discover -s tests -v
-python examples/basic.py
 ```
 
-自动测试使用标准库 `unittest` 和模拟响应，覆盖请求编码、腾讯行情解析、历史分页、净值切换及冷却、账户序列、份额换算和异步入口。GitHub Actions 在 Python 3.10～3.13 执行测试。在线检查单独运行：
+使用案例位于 `examples/`。在线样本检查运行 `python examples/smoke_check.py`，记录保存在 `docs/live-check.json`。GitHub Actions 在 Python 3.10～3.13 执行自动测试。
 
-```powershell
-python examples/smoke_check.py
+## 发布新版本
+
+在 `main` 分支审阅并提交功能改动后执行：
+
+```shell
+python scripts/release.py 0.1.1
 ```
 
-2026-10-23 本地 Python 3.12 验证：38 项自动测试通过，12 项公开数据在线样本检查通过；基金净值移动端与网页样本均返回 `2026-10-21` 单位净值 `1.493`。FRED 与 Twelve Data 的在线数据查询需配置账户密钥。详细结果见 [在线检查记录](docs/live-check.json)。
+脚本检查 PyPI 与 Git 标签、更新版本、构建并安装测试，然后推送提交与 `v0.1.1` 标签。GitHub Actions 使用 `pypi` Environment 和 OIDC（开放身份连接）可信发布到 PyPI。工作流运行记录见 [Publish to PyPI](https://github.com/zhangjw777/ashare-data-lite/actions/workflows/publish.yml)。
 
-## 项目结构
-
-```text
-src/ashare_data/
-  __init__.py       统一导出
-  client.py         来源选择与同步客户端
-  async_client.py   异步客户端
-  stock.py          股票入口
-  etf.py            ETF、净值、目录、份额入口
-  index.py          指数入口
-  sources/          腾讯、东方财富、新浪、交易所、FRED、Twelve Data
-  fallback.py       失败切换
-  exceptions.py     公开异常
-tests/              自动测试
-examples/           使用案例与在线检查
-docs/api.md         上游协议与公开接口
-```
-
-调整来源选择时修改 `client.py` 和对应 `sources/`，同时保持公开函数名、参数含义及返回字段约定稳定。
+仅执行发布前验证：`python scripts/release.py 0.1.1 --check-only`。项目内的发布指导位于 [.agents/skills/publish-pypi/SKILL.md](https://github.com/zhangjw777/ashare-data-lite/blob/main/.agents/skills/publish-pypi/SKILL.md)。
 

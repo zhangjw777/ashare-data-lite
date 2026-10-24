@@ -16,10 +16,21 @@ def get_client():
         return _client
 
 
-def configure(**kwargs):
-    """配置默认客户端，返回创建的 MarketClient。"""
+def configure(
+    *,
+    timeout: float = 10,
+    retries: int = 1,
+    fred_api_key: str | None = None,
+    twelve_api_key: str | None = None,
+) -> MarketClient:
+    """设置全局请求超时、重试和账户密钥，返回新的默认客户端。"""
     global _client
-    client = MarketClient(**kwargs)
+    client = MarketClient(
+        timeout=timeout,
+        retries=retries,
+        fred_api_key=fred_api_key,
+        twelve_api_key=twelve_api_key,
+    )
     with _lock:
         _client = client
     return client

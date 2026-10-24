@@ -64,7 +64,6 @@ class FredSource:
                             "value": value,
                             "series_id": series_id,
                             "source": "fred",
-                            "raw": row,
                         }
                     )
             offset += len(page)

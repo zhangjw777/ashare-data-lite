@@ -1,4 +1,4 @@
-"""腾讯行情文本解析，字段定义沿用原项目 provider。"""
+"""腾讯实时行情与历史日线。"""
 
 import re
 from datetime import date, datetime, timedelta
@@ -65,115 +65,85 @@ def _order_book(fields: list[str]) -> dict[str, list[dict[str, Any]]]:
 def _amount_yuan(fields: list[str]) -> float | None:
     summary = _field(fields, 35).split("/")
     if len(summary) >= 3:
-        try:
-            return float(summary[2])
-        except ValueError:
-            pass
+        amount = number(summary[2])
+        if amount is not None:
+            return amount
     amount_10k = _float(fields, 57)
     return amount_10k * 10000 if amount_10k is not None else None
 
 
 def parse_quote(symbol: str, payload: str, instrument="auto") -> dict[str, Any]:
+    """解析实时行情的业务字段，统一中间数据的价格和数量含义。"""
     fields = [part.strip() for part in payload.split("~")]
     if len(fields) <= 30:
-        raise DataFormatError(f"{symbol} 返回字段不足：实际 {len(fields)} 个")
+        raise DataFormatError(f"{symbol} 行情字段不足")
     symbol = normalize_symbol(symbol)
-    instrument_type = (
+    kind = (
         "index"
         if instrument == "index" or is_index(symbol)
         else _instrument_type(symbol, fields)
     )
     book = _order_book(fields)
-    amount_yuan = _amount_yuan(fields)
-    volume_lot = _int(fields, 6)
-    average_price_calculated = (
-        amount_yuan / (volume_lot * 100)
-        if amount_yuan is not None and volume_lot
-        else None
-    )
-    bid_volume = sum((level["volume_lot"] or 0 for level in book["bids"]))
-    ask_volume = sum((level["volume_lot"] or 0 for level in book["asks"]))
-    result: dict[str, Any] = {
+    amount = _amount_yuan(fields)
+    volume = _int(fields, 6)
+    result = {
         "source": "tencent",
         "symbol": symbol,
-        "market": symbol[:2],
         "code": _field(fields, 2),
         "name": _field(fields, 1),
-        "instrument_type": instrument_type,
-        "type_tag": _field(fields, 61) or None,
-        "market_status_code": _field(fields, 60) or None,
-        "is_suspended": _field(fields, 40) == "S",
+        "instrument_type": kind,
         "quote_time": _quote_time(_field(fields, 30)),
-        "quote_time_raw": _field(fields, 30),
-        "last": _float(fields, 3),
-        "prev_close": _float(fields, 4),
-        "open": _float(fields, 5),
-        "high": _float(fields, 33),
-        "low": _float(fields, 34),
-        "change": _float(fields, 31),
-        "change_pct": _float(fields, 32),
-        "volume_lot": volume_lot,
-        "outer_volume_lot": _int(fields, 7),
-        "inner_volume_lot": _int(fields, 8),
-        "amount_yuan": amount_yuan,
-        "amount_10k": _float(fields, 57),
-        "turnover_rate": _float(fields, 38),
-        "amplitude": _float(fields, 43),
-        "circulating_market_cap_100m": _float(fields, 44),
-        "total_market_cap_100m": _float(fields, 45),
-        "pb": _float(fields, 46),
-        "limit_up": _float(fields, 47),
-        "limit_down": _float(fields, 48),
-        "volume_ratio": _float(fields, 49),
-        "order_imbalance_lot": _int(fields, 50),
-        "order_imbalance_calculated": bid_volume - ask_volume,
-        "average_price": _float(fields, 51),
-        "average_price_calculated": average_price_calculated,
         "currency": _field(fields, 82) or None,
-        "recent_trades_raw": _field(fields, 29) or None,
+        "is_suspended": _field(fields, 40) == "S",
         "order_book": book,
-        "raw_fields": fields,
-    }
-    extension = {
-        "statistics_candidates": {
-            "year_high": _float(fields, 67),
-            "year_low": _float(fields, 68),
-            "short_return_1": _float(fields, 69),
-            "short_return_2": _float(fields, 70),
-            "short_return_3": _float(fields, 71),
-            "year_return": _float(fields, 79),
-        },
-        "raw_extension": {
-            str(index): _field(fields, index) for index in range(62, len(fields))
-        },
-    }
-    if instrument_type == "etf":
-        iopv = _float(fields, 78)
-        premium_rate = _float(fields, 77)
-        last = _float(fields, 3)
-        calculated_premium_rate = (
-            (last / iopv - 1) * 100 if last is not None and iopv else None
+        "volume_lot": volume,
+        "amount_yuan": amount,
+        "average_price_calculated": amount / (volume * 100)
+        if amount is not None and volume
+        else None,
+        "order_imbalance_calculated": sum(
+            level["volume_lot"] or 0 for level in book["bids"]
         )
+        - sum(level["volume_lot"] or 0 for level in book["asks"]),
+    }
+    indexes = {
+        "last": 3,
+        "prev_close": 4,
+        "open": 5,
+        "high": 33,
+        "low": 34,
+        "change": 31,
+        "change_pct": 32,
+        "outer_volume_lot": 7,
+        "inner_volume_lot": 8,
+        "turnover_rate": 38,
+        "amplitude": 43,
+        "circulating_market_cap_100m": 44,
+        "total_market_cap_100m": 45,
+        "pb": 46,
+        "limit_up": 47,
+        "limit_down": 48,
+        "volume_ratio": 49,
+        "average_price": 51,
+    }
+    result.update((key, _float(fields, index)) for key, index in indexes.items())
+    if kind == "etf":
+        iopv, last = _float(fields, 78), result["last"]
         result["etf"] = {
             "iopv": iopv,
-            "premium_rate": premium_rate,
-            "premium_rate_calculated": calculated_premium_rate,
+            "premium_rate": _float(fields, 77),
+            "premium_rate_calculated": (last / iopv - 1) * 100
+            if last is not None and iopv
+            else None,
             "circulating_units": _int(fields, 72),
             "total_units": _int(fields, 73),
-            "nav_reference_candidate": _float(fields, 81),
-            **extension,
         }
-    elif instrument_type == "stock":
+    elif kind == "stock":
         result["stock"] = {
             "pe": _float(fields, 39),
-            "pe_candidate_1": _float(fields, 52),
-            "pe_candidate_2": _float(fields, 53),
             "circulating_shares": _int(fields, 72),
             "total_shares": _int(fields, 73),
-            **extension,
         }
-    if instrument_type == "index":
-        result["index"] = extension
     return result
 
 
@@ -245,7 +215,6 @@ class TencentSource:
                             "volume_unit": "lot",
                             "source": "tencent",
                             "adjust": adjust,
-                            "raw": row,
                         }
                     )
             oldest = min(row[0] for row in page)

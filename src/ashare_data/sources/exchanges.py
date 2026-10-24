@@ -40,7 +40,6 @@ class ExchangeSource:
                     "shares": shares * 10000 if shares is not None else None,
                     "unit": "share",
                     "source": "sse",
-                    "raw": row,
                 }
             )
         return result

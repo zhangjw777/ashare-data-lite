@@ -18,7 +18,7 @@ from ashare_data.exceptions import (
     RequestError,
 )
 from ashare_data.sources.eastmoney import MOBILE_URL, WEB_URL
-from ashare_data.sources.tencent import HISTORY_URL, QUOTE_URL, parse_quote
+from ashare_data.sources.tencent import HISTORY_URL, QUOTE_URL
 
 
 def record(symbol="sz159941", tag="ETF", *, amount_summary=True):
@@ -100,34 +100,40 @@ class QuoteTests(unittest.TestCase):
                 normalize_symbol(value)
 
     def test_complete_etf_quote(self):
-        quote = parse_quote("sz159941", record().split('"')[1])
-        self.assertEqual(quote["source"], "tencent")
-        self.assertEqual(quote["etf"]["premium_rate_calculated"], 25)
-        self.assertEqual(quote["etf"]["total_units"], 200000)
-        self.assertEqual(quote["average_price_calculated"], 2)
-        self.assertEqual(quote["order_imbalance_calculated"], 50)
-        self.assertEqual(len(quote["order_book"]["bids"]), 5)
-        self.assertEqual(quote["quote_time"], "2026-10-21 15:00:00")
-        self.assertEqual(len(quote["raw_fields"]), 83)
-        json.dumps(quote, ensure_ascii=False)
+        quote = client_with(lambda *_: record()).get_etf_quote("159941")
+        self.assertEqual(quote.source, "tencent")
+        self.assertEqual(quote.premium_rate_pct, 25)
+        self.assertEqual(quote.total_shares, 200000)
+        self.assertEqual(quote.average_price, 2)
+        self.assertEqual(quote.order_imbalance, 5000)
+        self.assertEqual(quote.volume, 1000)
+        self.assertEqual(quote.market_cap, 20000000000)
+        self.assertEqual(len(quote.bids), 5)
+        self.assertEqual(quote.timestamp.isoformat(), "2026-10-21T15:00:00+08:00")
+        json.dumps(quote.to_dict(), ensure_ascii=False)
 
     def test_stock_and_index_classification(self):
-        stock = parse_quote("sh600519", record("sh600519", "GP-A").split('"')[1])
-        self.assertEqual(stock["stock"]["pe"], 20)
-        index = parse_quote("sh000001", record("sh000001", "ZS").split('"')[1])
-        self.assertEqual(index["instrument_type"], "index")
-        self.assertIn("index", index)
+        stock = client_with(lambda *_: record("sh600519", "GP-A")).get_stock_quote(
+            "600519"
+        )
+        self.assertEqual(stock.pe, 20)
+        index = client_with(lambda *_: record("sh000001", "ZS")).get_index_quote(
+            "000001"
+        )
+        self.assertEqual(index.instrument, "index")
 
     def test_amount_fallback(self):
-        quote = parse_quote("sz159941", record(amount_summary=False).split('"')[1])
-        self.assertEqual(quote["amount_yuan"], 2000)
+        quote = client_with(lambda *_: record(amount_summary=False)).get_etf_quote(
+            "159941"
+        )
+        self.assertEqual(quote.amount, 2000)
 
     def test_batch_dedup_and_missing(self):
         client = client_with(lambda url, options: record())
         quotes = client.get_etf_quotes(["159941", "sz159941", "513100"])
         self.assertEqual(len(quotes), 2)
-        self.assertEqual(quotes[0]["symbol"], "sz159941")
-        self.assertIn("error", quotes[1])
+        self.assertEqual(quotes[0].symbol, "sz159941")
+        self.assertEqual(quotes[1].error, "行情缺失")
         with self.assertRaises(QuoteNotFoundError):
             client.get_stock_quote("600519")
 
@@ -151,7 +157,7 @@ class QuoteTests(unittest.TestCase):
         with patch(
             "ashare_data._default._client", client_with(lambda url, options: record())
         ):
-            self.assertEqual(ashare_data.get_etf_quote("159941")["last"], 2)
+            self.assertEqual(ashare_data.get_etf_quote("159941").last, 2)
 
     def test_batch_argument(self):
         with self.assertRaises(ConfigurationError):
@@ -177,10 +183,10 @@ class NavTests(unittest.TestCase):
         client = client_with(handler)
         rows = client.get_fund_nav_history("159941", "2026-10-20", "2026-10-21")
         self.assertEqual(
-            [row["valuation_date"] for row in rows], ["2026-10-20", "2026-10-21"]
+            [row.date for row in rows], [date(2026, 10, 20), date(2026, 10, 21)]
         )
-        self.assertEqual(rows[0]["nav"], 3)
-        self.assertEqual(rows[0]["source"], "eastmoney_mobile")
+        self.assertEqual(rows[0].nav, 3)
+        self.assertEqual(rows[0].source, "eastmoney_mobile")
         self.assertEqual(client.http.calls[0][1]["timeout"], 5)
 
     def test_failure_fallback_and_cooldown(self):
@@ -198,7 +204,7 @@ class NavTests(unittest.TestCase):
         client = client_with(handler)
         for _ in range(2):
             rows = client.get_fund_nav_history("159941", "2026-10-20", "2026-10-21")
-            self.assertEqual(rows[0]["source"], "eastmoney_web")
+            self.assertEqual(rows[0].source, "eastmoney_web")
         self.assertEqual(
             [url for url, _ in client.http.calls], [MOBILE_URL, WEB_URL, WEB_URL]
         )
@@ -245,7 +251,7 @@ class NavTests(unittest.TestCase):
             }
 
         rows = client_with(handler).get_fund_nav_history("159941")
-        self.assertEqual(rows[0]["nav"], 1)
+        self.assertEqual(rows[0].nav, 1)
 
     def test_empty_history(self):
         rows = client_with(
@@ -266,8 +272,8 @@ class NavTests(unittest.TestCase):
         rows = client_with(handler).get_fund_nav_history(
             "159941", "2026-10-20", "2026-10-21"
         )
-        self.assertEqual(rows[0]["source"], "eastmoney_web")
-        self.assertEqual(rows[0]["nav"], 1.5)
+        self.assertEqual(rows[0].source, "eastmoney_web")
+        self.assertEqual(rows[0].nav, 1.5)
 
     def test_invalid_dates_fail_before_request(self):
         client = client_with(lambda *_: self.fail("日期校验应先于请求"))
@@ -311,22 +317,29 @@ class HistoryTests(unittest.TestCase):
             return {"code": 0, "data": {"sz159941": {"qfqday": pages.pop(0)}}}
 
         rows = client_with(handler).get_etf_history(
-            "159941", "2020-01-01", "2026-10-21"
+            "159941", "2020-01-01", "2026-10-21", adjust="qfq", sources=["tencent"]
         )
         self.assertEqual(len(rows), 641)
-        self.assertEqual(rows[0]["datetime"], "2020-01-01")
-        self.assertEqual(rows[0]["volume_unit"], "lot")
+        self.assertEqual(rows[0].timestamp.date().isoformat(), "2020-01-01")
+        self.assertEqual(rows[0].volume, 1000)
 
     def test_history_adjust_fields_and_page_limit(self):
         client = client_with(lambda *_: {"code": 0, "data": {"sz159941": {"day": []}}})
-        with self.assertRaises(DataFormatError):
-            client.get_etf_history("159941", adjust="qfq")
+        with self.assertRaises(AllSourcesFailedError):
+            client.get_etf_history("159941", adjust="qfq", sources=["tencent"])
         page = [["2026-10-20", "1", "2", "3", "0.5", "10"]] * 640
         client = client_with(
             lambda *_: {"code": 0, "data": {"sz159941": {"qfqday": page}}}
         )
-        with self.assertRaises(DataFormatError):
-            client.get_etf_history("159941", "2020-01-01", "2026-10-21", max_pages=1)
+        with self.assertRaises(AllSourcesFailedError):
+            client.get_etf_history(
+                "159941",
+                "2020-01-01",
+                "2026-10-21",
+                max_pages=1,
+                adjust="qfq",
+                sources=["tencent"],
+            )
 
     def test_index_uses_original_prices(self):
         def handler(url, options):
@@ -336,8 +349,10 @@ class HistoryTests(unittest.TestCase):
         self.assertEqual(client_with(handler).get_index_history("000001"), [])
 
     def test_invalid_history_container(self):
-        with self.assertRaises(DataFormatError):
-            client_with(lambda *_: {"code": 0, "data": None}).get_etf_history("159941")
+        with self.assertRaises(AllSourcesFailedError):
+            client_with(lambda *_: {"code": 0, "data": None}).get_etf_history(
+                "159941", sources=["tencent"]
+            )
 
     def test_sina_minute_filter_and_sort(self):
         rows = [
@@ -356,10 +371,10 @@ class HistoryTests(unittest.TestCase):
             )
         ]
         result = client_with(lambda *_: rows).get_etf_history(
-            "159941", "2026-10-21", "2026-10-21", source="sina", adjust="", scale=5
+            "159941", "2026-10-21", "2026-10-21", sources=["sina"], scale=5
         )
         self.assertEqual(len(result), 2)
-        self.assertTrue(result[0]["datetime"].endswith("09:30:00"))
+        self.assertTrue(result[0].timestamp.strftime("%H:%M:%S") == "09:30:00")
 
     def test_catalog_pagination(self):
         def handler(url, options):
@@ -380,8 +395,8 @@ class HistoryTests(unittest.TestCase):
                 ]
             }
         ).get_sse_etf_shares("2026-10-21")
-        self.assertEqual(rows[0]["shares"], 25000)
-        self.assertEqual(rows[0]["unit"], "share")
+        self.assertEqual(rows[0].shares, 25000)
+        self.assertEqual(rows[0].date, date(2026, 10, 21))
 
 
 class AccountSourceTests(unittest.TestCase):
@@ -403,7 +418,7 @@ class AccountSourceTests(unittest.TestCase):
         rows = client_with(handler).get_vix_history(
             "2026-10-20", "2026-10-22", api_key="test"
         )
-        self.assertEqual([row["value"] for row in rows], [20, 21])
+        self.assertEqual([row.value for row in rows], [20, 21])
 
     def test_twelve_full_daily_pagination(self):
         def handler(url, options):
@@ -425,7 +440,7 @@ class AccountSourceTests(unittest.TestCase):
             "SPY", "1999-01-01", "2026-10-21", api_key="test"
         )
         self.assertEqual(len(rows), 5001)
-        self.assertEqual(rows[0]["meta"]["currency"], "USD")
+        self.assertEqual(rows[0].currency, "USD")
 
     def test_keys_required(self):
         with patch.dict("os.environ", {}, clear=True):
@@ -452,8 +467,8 @@ class AsyncTests(unittest.IsolatedAsyncioTestCase):
         quote, quotes = await asyncio.gather(
             client.get_etf_quote("159941"), client.get_etf_quotes(["159941"])
         )
-        self.assertEqual(quote["last"], 2)
-        self.assertEqual(quotes[0]["symbol"], "sz159941")
+        self.assertEqual(quote.last, 2)
+        self.assertEqual(quotes[0].symbol, "sz159941")
 
 
 if __name__ == "__main__":

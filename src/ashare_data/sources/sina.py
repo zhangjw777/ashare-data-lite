@@ -23,6 +23,16 @@ class SinaSource:
         )
         if not isinstance(body, list):
             raise DataFormatError("新浪 K 线响应应为列表")
+        # 最近记录达到请求上限时，明确报告日期覆盖范围，供上层继续降级。
+        if (
+            len(body) >= datalen
+            and body
+            and min(
+                str(row.get("day", ""))[:10] for row in body if isinstance(row, dict)
+            )
+            > start
+        ):
+            raise DataFormatError("新浪最近 K 线条数上限限制了所请求的起始日期")
         rows = []
         for row in body:
             if not isinstance(row, dict) or any(
@@ -46,7 +56,6 @@ class SinaSource:
                         "volume_unit": "upstream",
                         "source": "sina",
                         "adjust": "",
-                        "raw": row,
                     }
                 )
         return sorted_rows(rows)

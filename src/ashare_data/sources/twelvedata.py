@@ -76,7 +76,6 @@ class TwelveDataSource:
                     "source": "twelvedata",
                     "adjust": adjust,
                     "meta": body.get("meta", {}),
-                    "raw": row,
                 }
             )
         return sorted_rows(rows)

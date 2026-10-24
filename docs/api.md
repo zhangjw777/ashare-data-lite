@@ -1,216 +1,228 @@
-# 行情源接口手册
+# API 参考
 
-更新日期：2026-10-23。项目路径：`F:\FinancialData\a-share-data`。安装：`python -m pip install -e F:\FinancialData\a-share-data`。运行代码使用 Python 标准库，返回 Python 字典和列表。
+所有公开入口均可从 `ashare_data` 导入。调用返回 dataclass 对象或其列表，使用 `obj.field` 读取字段、`obj.to_dict()` 转为适合 JSON 的字典。
 
-实现参考 `F:\excellent-opensource-dev\global_asset_history\backend\app\providers`，请求与解析代码位于 `src/ashare_data/sources/`。公开入口统一由 `ashare_data/__init__.py` 导出。
+## 1. 共同约定
 
-## 1. 调用约定
+| 项目 | 约定 |
+| --- | --- |
+| 代码 | 字符串，支持 `159941`、`sz159941`、`159941.SZ` |
+| 品种 | `instrument="auto" / "stock" / "etf" / "index"` |
+| 日期参数 | `YYYY-MM-DD` 字符串或 `datetime.date`，起止日均包含；默认从 `1970-01-01` 到中国时区当天 |
+| 代码歧义 | 股票入口 `"000001"` 为平安银行，指数入口为上证指数；混合入口中的指数使用 `"sh000001"`、`"sz399001"` |
+| 时间 | `timestamp` 为带时区的 `datetime`；沪深行情为 UTC+08:00，海外 K 线为 UTC |
+| 日期字段 | `date` 为 `datetime.date`，表示净值所属日、统计日或观测日 |
+| 数量 | 沪深股票按股、ETF 按份；不同来源的上游取整精度可能有差异 |
+| 价格与金额 | 按 `currency` 标价币种；市值与成交额使用基本货币单位，如人民币元 |
+| 百分率 | `*_pct` 为百分数，`2.5` 表示 `2.5%` |
+| 缺失值 | 可选字段为 `None`，成功查询的空区间返回 `[]`；FRED 缺失观测跳过 |
+| 列表顺序 | 历史按时间去重升序；批量行情按首次输入顺序去重 |
+| 对象 | dataclass 为只读对象；`to_dict()` 递归将日期、时间转为 ISO 8601 字符串，将元组转为列表 |
+
+## 2. 实时行情
+
+| 函数 | 参数 | 返回 |
+| --- | --- | --- |
+| `get_stock_quote` / `get_etf_quote` / `get_index_quote` | `code: str` | `Quote` |
+| `get_stock_quotes` / `get_etf_quotes` / `get_index_quotes` | `codes: Sequence[str]` | `list[Quote]` |
+| `get_quote` | `code, *, instrument="auto"` | `Quote` |
+| `get_quotes` | `codes, *, instrument="auto"` | `list[Quote]` |
 
 ```python
-from ashare_data import get_etf_quote, get_fund_nav_history
+from ashare_data import get_etf_quote, get_quotes
 
 quote = get_etf_quote("159941")
-nav = get_fund_nav_history("159941", "2026-10-01", "2026-10-21")
+print(quote.last, quote.iopv, quote.premium_rate_pct)
+print(quote.bids[0].price, quote.bids[0].volume)
+
+quotes = get_quotes(["sz159941", "sh600519", "sh000001"])
 ```
 
-日期使用 `YYYY-MM-DD` 字符串或 `datetime.date`，起止日期均包含。默认起始日 `1970-01-01`，默认截止日为中国时区当天；新浪历史的实际返回范围遵循最近记录上限。代码以字符串传入，支持 `159941`、`sz159941`、`159941.SZ`。指数通过指数入口调用，或使用带市场前缀的代码。
+实时行情采用腾讯。单只查询缺失时抛出 `QuoteNotFoundError`；批量查询的缺失项为 `Quote`，其 `error` 包含原因，其余可选字段为 `None`。整次网络或响应解析失败时抛出对应异常。
 
-ETF 为交易所交易基金，NAV 为基金单位净值，IOPV 为基金份额参考净值，OHLC 为开盘、最高、最低、收盘价格。复权表示对拆股、分红等事件调整历史价格。
+### Quote
 
-| 公共函数 | 参数要点 | 返回 |
+| 字段 | 类型 | 含义 |
 | --- | --- | --- |
-| `get_stock_quote` / `get_etf_quote` / `get_index_quote` | `code` | 单只行情字典 |
-| `get_stock_quotes` / `get_etf_quotes` / `get_index_quotes` | `codes` 字符串列表 | 行情列表 |
-| `get_quote` / `get_quotes` | `code` / `codes`，`instrument="auto"` | 混合品种行情 |
-| `get_stock_history` / `get_etf_history` | `code, start=None, end=None, source="tencent", adjust="qfq", scale=240, datalen=5049, max_pages=100` | 历史 K 线列表 |
-| `get_index_history` | 同上，默认 `adjust=""` | 指数历史列表 |
-| `get_history` | 历史参数及 `instrument="auto"` | 通用历史列表 |
-| `get_fund_nav_history` | `code, start=None, end=None` | 历史单位净值列表 |
-| `get_etf_catalog` | 空参数 | 代码到名称的字典 |
-| `get_sse_etf_shares` | `day` | 上交所 ETF 份额列表 |
-| `get_fred_series` | `series_id, start=None, end=None, api_key=None` | 有效观测列表 |
-| `get_vix_history` | `start=None, end=None, api_key=None` | `VIXCLS` 序列 |
-| `get_twelve_bars` | `symbol, interval="1day", outputsize=5000, start=None, end=None, adjust="all", api_key=None` | 一页 K 线 |
-| `get_twelve_daily_history` | `symbol, start=None, end=None, adjust="all", api_key=None, max_pages=100` | 完整日期范围日线 |
+| `symbol` / `code` | `str` | 带市场前缀的证券标识 / 六位代码 |
+| `instrument` | `str` | `stock`、`etf`、`index`；混合查询缺失项可为 `auto` |
+| `source` | `str` | 本次实际数据来源 |
+| `name` | `str \| None` | 证券名称 |
+| `timestamp` | `datetime \| None` | 行情时间 |
+| `currency` | `str \| None` | 标价币种，例如 `CNY` |
+| `last` / `prev_close` | `float \| None` | 最新价 / 昨收价 |
+| `open` / `high` / `low` | `float \| None` | 当日开盘价 / 最高价 / 最低价 |
+| `change` / `change_pct` | `float \| None` | 相对昨收的涨跌额 / 涨跌幅 |
+| `volume` / `amount` | `float \| None` | 当日累计成交数量 / 成交金额 |
+| `outer_volume` / `inner_volume` | `float \| None` | 外盘 / 内盘成交数量 |
+| `turnover_rate_pct` / `amplitude_pct` | `float \| None` | 换手率 / 振幅 |
+| `market_cap` / `circulating_market_cap` | `float \| None` | 总市值 / 流通市值 |
+| `pe` / `pb` | `float \| None` | 股票市盈率 / 市净率 |
+| `limit_up` / `limit_down` | `float \| None` | 涨停价 / 跌停价 |
+| `volume_ratio` | `float \| None` | 量比 |
+| `order_imbalance` | `float \| None` | 买五档数量合计减卖五档数量合计 |
+| `average_price` | `float \| None` | 当日成交均价 |
+| `is_suspended` | `bool` | 源端停牌标记 |
+| `bids` / `asks` | `tuple[OrderLevel, ...]` | 买 / 卖报价，按一档到五档排列；缺失行情时为空元组 |
+| `iopv` | `float \| None` | ETF 份额参考净值 |
+| `premium_rate_pct` | `float \| None` | ETF 折溢价率；正数为溢价，负数为折价 |
+| `circulating_shares` / `total_shares` | `float \| None` | 流通 / 总股票股数或基金份数 |
+| `error` | `str \| None` | 批量缺失项的错误信息；成功时为 `None` |
 
-所有函数均有对应的 `MarketClient` 方法与 `AsyncMarketClient` 方法。异步客户端使用 `await client.get_etf_quote("159941")`；线程执行网络请求，限速状态由客户端共享。
+`OrderLevel` 表示一档买卖报价。
 
-## 2. 腾讯：全部实时行情
-
-请求：`GET https://qt.gtimg.cn/q=sz159941,sh600519,sh000001`。响应使用 GBK 编码，以 `v_证券代码="字段~字段~...";` 表示每只证券。每批最多 50 个代码，输入按首次出现顺序去重。单只行情缺失时抛出 `QuoteNotFoundError`，批量缺失项返回 `{"symbol": "...", "source": "tencent", "error": "行情缺失"}`。
-
-股票入口的 `000001` 对应 `sz000001`；指数入口的 `000001` 对应 `sh000001`。`399xxx` 指数使用深市；其他指数使用明确市场前缀。沪深股票、ETF、指数的实时行情全部由同一腾讯入口获取。
-
-### 2.1 文本字段与单位
-
-下标从 0 开始，解析实现沿用参考项目的腾讯 provider。
-
-| 下标 | 返回字段 / 含义 |
-| --- | --- |
-| 1 / 2 | `name` / `code` |
-| 3 / 4 / 5 | `last` / `prev_close` / `open` |
-| 6 / 7 / 8 | `volume_lot` / `outer_volume_lot` / `inner_volume_lot`，单位手 |
-| 9～18 / 19～28 | 买五档 / 卖五档，价格和手数交替 |
-| 29 / 30 | `recent_trades_raw` / 行情时间 `YYYYMMDDHHMMSS` |
-| 31 / 32 / 33 / 34 | `change` / `change_pct` / `high` / `low` |
-| 35 | 成交摘要第 3 项为成交额（元） |
-| 38 / 39 / 40 | `turnover_rate`（百分数）/ 股票 `pe` / `S` 停牌标记 |
-| 43 / 44 / 45 / 46 | `amplitude`（百分数）/ 流通市值（亿元）/ 总市值（亿元）/ `pb` |
-| 47 / 48 / 49 / 50 / 51 | `limit_up` / `limit_down` / `volume_ratio` / `order_imbalance_lot` / `average_price` |
-| 57 | `amount_10k`，单位万元 |
-| 60 / 61 | `market_status_code` / `type_tag` |
-| 72 / 73 | 流通份额或股数 / 总份额或股数 |
-| 77 / 78 | ETF `premium_rate`（百分数）/ `iopv` |
-| 82 | `currency` |
-
-`order_book.bids`、`order_book.asks` 各含 5 档，每档包括 `level`、`price`、`volume_lot`。`amount_yuan` 优先采用成交摘要，备用读取字段 57 乘 10000。`average_price_calculated = amount_yuan / (volume_lot * 100)`；`order_imbalance_calculated` 为买五档手数合计减卖五档手数合计。
-
-`source="tencent"`；`symbol` 保留市场前缀，`market` 为 `sh` 或 `sz`；`quote_time` 为 `YYYY-MM-DD HH:MM:SS`，`quote_time_raw` 保留原始时间。`raw_fields` 保存全部字段。字段含义随品种确定，扩展原文用于逐项核对。
-
-### 2.2 品种扩展
-
-ETF 以 `etf` 返回 `iopv`、`premium_rate`、`premium_rate_calculated`、`circulating_units`、`total_units`、`nav_reference_candidate`。计算溢价率为 `(last / iopv - 1) * 100`。
-
-股票以 `stock` 返回 `pe`、`pe_candidate_1`、`pe_candidate_2`、`circulating_shares`、`total_shares`。指数以 `index` 保存扩展字段。`instrument_type` 为 `etf`、`stock` 或 `index`。
-
-各品种扩展均包含 `statistics_candidates` 和 `raw_extension`。字段 67/68、69～71、79 分别保留为年内高低、短期收益及年度收益候选值；52/53 为股票市盈率候选值；81 为 ETF 净值参考候选值。`raw_extension` 保存 62 起的原始字符串字段。
-
-## 3. 腾讯：历史日线
-
-请求：`GET https://proxy.finance.qq.com/ifzqgtimg/appstock/app/newfqkline/get`。
-
-| 参数 | 示例 | 含义 |
+| 字段 | 类型 | 含义 |
 | --- | --- | --- |
-| `param` | `sz159941,day,,2026-10-21,640,qfq` | 代码、周期、起始日期、截止日期、条数、复权方式 |
+| `price` | `float \| None` | 该档报价 |
+| `volume` | `float \| None` | 该档委托数量，股或份 |
 
-`adjust="qfq"` 为前复权，`"hfq"` 为后复权，`""` 为原始价格。按所选方式读取 `data[证券代码].qfqday`、`hfqday` 或 `day`。指数使用原始价格。
+ETF 专属字段在其他品种上为 `None`；其余可选字段由品种与数据可用性决定。
 
-每条记录前六项为 `[日期, 开盘, 收盘, 最高, 最低, 成交量]`。返回记录的 `volume_unit="lot"`，`source="tencent"`；扩展列保存在 `raw`。日期向前分页，每页 640 条，下一页截止日期为本页最早日期的前一天，取得起始日后结束。结果按 `datetime` 去重升序排列；达到 `max_pages` 时抛出 `DataFormatError`。
+## 3. 历史 K 线
 
-## 4. 新浪：历史 K 线与 ETF 目录
+`get_stock_history`、`get_etf_history`、`get_index_history` 共用以下签名，返回 `list[Bar]`：
 
-### 4.1 K 线
-
-请求：`GET http://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData`。
-
-| 参数 | 值示例 |
-| --- | --- |
-| `symbol` | `sz159941` |
-| `scale` | `240` 日线；`5` / `15` / `30` 分钟线 |
-| `ma` | `no` |
-| `datalen` | `5049`，允许 1～5049 |
-
-响应数组包含 `day`、`open`、`close`、`high`、`low`、`volume`。公开历史接口选择 `source="sina", adjust=""`，按 `day` 筛选目标区间，保留实际返回的最近记录。日期跨度与 5049 条上限共同决定覆盖范围。`volume_unit="upstream"` 表示采用上游数值与单位，`raw` 保存原始记录；时间采用中国交易市场时间。
-
-### 4.2 ETF 目录
-
-请求：`GET https://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/Market_Center.getHQNodeData`。
-
-| 参数 | 值 |
-| --- | --- |
-| `page` / `num` | `1` 起的页码 / `100` |
-| `sort` / `asc` | `symbol` / `0` |
-| `node` | `etf_hq_fund` |
-
-从数组记录的 `code`、`name` 构建字典，少于 100 条时结束。重复页或达到 1000 页时抛出 `DataFormatError`。
-
-## 5. 东方财富：基金历史单位净值
-
-`get_fund_nav_history` 优先调用移动端；移动端请求、业务状态、字段解析或分页失败后，从网页接口重新获取完整结果。两个来源都失败时抛出 `AllSourcesFailedError`，其 `errors` 保存逐源异常。
-
-### 5.1 移动端
-
-请求：`GET https://fundmobapi.eastmoney.com/FundMNewApi/FundMNHisNetList`。
-
-| 参数 | 值 |
-| --- | --- |
-| `FCODE` | 六位基金代码 |
-| `pageIndex` / `pageSize` | `1` 起的页码 / `40000` |
-| `appType` / `cToken` / `deviceid` | `ttjj` / `1` / `1` |
-| `plat` / `product` | `Iphone` / `EFund` |
-| `serverVersion` / `version` | `6.2.8` / `6.2.8` |
-
-请求头：
-
-```text
-User-Agent: EMProjJijin/6.2.8 (iPhone; iOS 13.6; Scale/2.00)
-GTOKEN: 98B423068C1F4DEF9842F82ADF08C5db
-clientInfo: ttjj-iPhone10,1-iOS-iOS13.6
-Referer: https://mpservice.com/516939c37bdb4ba2b1138c50cf69a2e1/release/pages/FundHistoryNetWorth
+```python
+get_etf_history(
+    code, start=None, end=None, *,
+    sources=None, adjust="none", scale=240, datalen=5049, max_pages=100,
+)
 ```
 
-成功状态 `ErrCode=0`，从 `Datas` 读取记录，按 `TotalCount` 完成分页；累计计数使用日期筛选前的条数。按响应 `FSRQ` 的真实日期筛选区间，`DWJZ` 转为 `nav`。`source="eastmoney_mobile"`。
+`get_history` 使用相同参数，并增加 `instrument="auto"`。
 
-### 5.2 网页接口
-
-请求：`GET https://api.fund.eastmoney.com/f10/lsjz`，请求头 `Referer: https://fundf10.eastmoney.com/jjjz_159941.html`，代码随查询变化。
-
-| 参数 | 值 |
+| 参数 | 含义 |
 | --- | --- |
-| `fundCode` | 六位基金代码 |
-| `pageIndex` / `pageSize` | `1` 起的页码 / `20` |
-| `startDate` / `endDate` | `YYYY-MM-DD` 起止日期 |
+| `sources` | 按优先级排列的列表；日线默认 `["tencent", "sina"]`，分钟线默认 `["sina"]` |
+| `adjust` | `"none"` 原始价格、`"qfq"` 前复权、`"hfq"` 后复权；指数使用 `"none"` |
+| `scale` | `240` 日线；`5`、`15`、`30` 分钟线 |
+| `datalen` | 新浪最近 K 线数量，1～5049，默认 5049 |
+| `max_pages` | 腾讯历史分页上限，正整数，默认 100 |
 
-成功状态 `ErrCode=0`，记录位于 `Data.LSJZList`，按 `TotalCount` 继续分页；`FSRQ` 为日期，`DWJZ` 为单位净值。`source="eastmoney_web"`。
+来源出错后按顺序尝试下一个兼容来源，成功后返回该来源的结果。选择兼容来源时保持周期和复权方式一致：
 
-结果统一为 `{"code": "159941", "valuation_date": "2026-10-21", "nav": 1.5, "source": "eastmoney_mobile", "raw": {...}}`，示例数值用于说明结构。按真实日期去重升序排列，空区间返回空列表。
-
-同一客户端共享并发上限 2、0.25 秒请求间隔。移动端单次超时为 `min(timeout, 5)` 秒，失败后冷却 60 秒；403/429 同时参考 `Retry-After`。网页冷却独立保存；源端空页导致条数尚未达到 `TotalCount`、重复页或达到 1000 页时报告分页错误。
-
-## 6. 上交所：ETF 份额
-
-请求：`GET https://query.sse.com.cn/commonQuery.do`，请求头 `Referer: https://www.sse.com.cn/`。
-
-| 参数 | 值 |
+| 周期、价格方式 | 可用来源 |
 | --- | --- |
-| `isPagination` | `true` |
-| `pageHelp.pageSize` / `pageHelp.pageNo` | `10000` / `1` |
-| `pageHelp.beginPage` / `pageHelp.endPage` / `pageHelp.cacheSize` | `1` / `1` / `1` |
-| `sqlId` | `COMMON_SSE_ZQPZ_ETFZL_XXPL_ETFGM_SEARCH_L` |
-| `STAT_DATE` | `YYYY-MM-DD` |
+| 日线，原始价格 | `tencent`、`sina` |
+| 日线，前复权或后复权 | `tencent` |
+| 5 / 15 / 30 分钟线，原始价格 | `sina` |
 
-读取 `result` 数组，`SEC_CODE` → `code`，`STAT_DATE` → `date`，`TOT_VOL * 10000` → `shares`。返回 `unit="share"`（份）、`source="sse"`、原始 `raw`。查询范围沿用参考项目的第一页、10000 条配置。
+`sources` 支持调整顺序或仅保留所需来源。新浪提供最近记录；条数上限截断所请求的起始日期时报告来源失败。所有兼容来源失败时抛出 `AllSourcesFailedError`。请求的周期与复权方式缺少兼容来源时抛出 `ConfigurationError`。
 
-## 7. FRED：经济序列和 VIX
+```python
+from ashare_data import get_etf_history
 
-请求：`GET https://api.stlouisfed.org/fred/series/observations`。
+daily = get_etf_history("159941", "2026-10-01", "2026-10-23")
+minute = get_etf_history("159941", "2026-10-23", "2026-10-23", scale=5)
+adjusted = get_etf_history("159941", "2026-01-01", "2026-10-23", adjust="qfq")
+preferred = get_etf_history(
+    "159941", "2026-10-01", "2026-10-23", sources=["sina", "tencent"],
+)
+print(daily[-1].close)
+```
 
-| 参数 | 值 |
+### Bar
+
+沪深历史与海外历史共用 `Bar`。
+
+| 字段 | 类型 | 含义 |
+| --- | --- | --- |
+| `symbol` | `str` | 沪深为市场前缀代码，海外为服务商证券代码 |
+| `timestamp` | `datetime` | K 线记录的日期或时间；日线为所属交易日零点 |
+| `interval` | `str` | 周期，如 `1day`、`5min` |
+| `source` | `str` | 本次实际来源 |
+| `adjust` | `str` | 实际价格方式：`none`、`qfq`、`hfq`、`all`、`splits`、`dividends` |
+| `open` / `high` / `low` / `close` | `float \| None` | 开盘 / 最高 / 最低 / 收盘价格；成功记录的收盘价有值 |
+| `volume` | `float \| None` | 该周期成交数量 |
+| `volume_unit` | `str` | 沪深为 `share`：股或份；海外为 `provider`：服务商对该品种定义的成交量单位 |
+| `currency` | `str \| None` | 标价币种；沪深为 `CNY`，海外随品种确定 |
+
+## 4. 基金净值、目录与份额
+
+| 函数 | 签名 | 返回 |
+| --- | --- | --- |
+| `get_fund_nav_history` | `(code, start=None, end=None, *, sources=None)` | `list[FundNav]` |
+| `get_etf_catalog` | `()` | `dict[str, str]`，六位 ETF 代码到名称的映射 |
+| `get_sse_etf_shares` | `(day)`，统计日期 | `list[FundShares]`，上交所 ETF 份额 |
+
+净值的默认来源顺序为 `["eastmoney_mobile", "eastmoney_web"]`，可用 `sources` 调整优先级。移动端失败后，网页接口重新获取完整区间；同一客户端自动管理请求间隔和冷却状态。
+
+```python
+from ashare_data import get_fund_nav_history, get_etf_catalog, get_sse_etf_shares
+
+nav = get_fund_nav_history("159941", "2026-10-01", "2026-10-23")
+print(nav[-1].date, nav[-1].nav)
+catalog = get_etf_catalog()
+shares = get_sse_etf_shares("2026-10-23")
+```
+
+`FundNav` 与 `FundShares` 的字段如下。
+
+| 字段 | 类型 | 所属类型与含义 |
+| --- | --- | --- |
+| `code` | `str` | 两者共用，六位基金代码 |
+| `date` | `date` | 净值所属日 / 份额统计日 |
+| `source` | `str` | 本次实际来源 |
+| `nav` | `float` | FundNav 单位净值，币种随基金份额类别确定 |
+| `shares` | `float \| None` | FundShares 基金份额，单位份 |
+
+## 5. FRED 与海外行情
+
+| 函数 | 签名 | 返回 |
+| --- | --- | --- |
+| `get_fred_series` | `(series_id, start=None, end=None, *, api_key=None)` | `list[Observation]` |
+| `get_vix_history` | `(start=None, end=None, *, api_key=None)` | `list[Observation]`，VIX 日度收盘序列 `VIXCLS` |
+| `get_twelve_bars` | `(symbol, *, interval="1day", outputsize=5000, start=None, end=None, adjust="all", api_key=None)` | 一页 `list[Bar]` |
+| `get_twelve_daily_history` | `(symbol, start=None, end=None, *, adjust="all", api_key=None, max_pages=100)` | 自动分页的 `list[Bar]` |
+
+FRED 密钥环境变量为 `FRED_API_KEY`，Twelve Data 为 `TWELVE_DATA_API_KEY`。密钥优先级：单次 `api_key` → 客户端配置 → 环境变量。
+
+Twelve Data 的 `outputsize` 为 1～5000；`interval` 按账户支持的周期传入；`adjust` 可为 `none`、`splits`、`dividends`、`all`。`get_twelve_bars` 的起止参数可使用日期或日期时间字符串；完整日线的起止参数使用日期。可用市场、历史长度和调用额度由账户权限决定。
+
+```python
+from ashare_data import MarketClient
+
+client = MarketClient(fred_api_key="YOUR_FRED_KEY", twelve_api_key="YOUR_TWELVE_KEY")
+vix = client.get_vix_history("2026-10-01", "2026-10-23")
+spy = client.get_twelve_daily_history("SPY", "2026-01-01", "2026-10-23")
+```
+
+`Observation` 表示序列的单次有效观测。
+
+| 字段 | 类型 | 含义 |
+| --- | --- | --- |
+| `series_id` | `str` | FRED 序列标识 |
+| `date` | `date` | 观测日期 |
+| `value` | `float` | 有效观测值，单位由该 FRED 序列定义 |
+| `source` | `str` | 本次实际来源 |
+
+## 6. 配置、客户端与异常
+
+`configure` 签名为 `(*, timeout=10, retries=1, fred_api_key=None, twelve_api_key=None) -> MarketClient`，设置顶层函数使用的默认客户端。`timeout` 为每次网络请求超时秒数，须大于 0；`retries` 为网络异常及临时网关错误的重试次数，须为非负整数。
+
+`MarketClient` 使用相同配置参数，实例方法与顶层函数同名、同参数、同返回类型。`AsyncMarketClient` 提供对应的 `await` 方法。实例间配置独立；同一客户端复用净值限速和冷却状态。异步取消后，已开始的网络请求由超时约束。
+
+```python
+import asyncio
+from ashare_data import AsyncMarketClient, configure
+
+configure(timeout=10, retries=1)
+
+async def main():
+    client = AsyncMarketClient(timeout=10)
+    quote = await client.get_etf_quote("159941")
+    print(quote.last)
+
+asyncio.run(main())
+```
+
+| 异常 | 含义 |
 | --- | --- |
-| `api_key` | 账户密钥 |
-| `series_id` | 例如 `VIXCLS` |
-| `file_type` / `sort_order` | `json` / `asc` |
-| `observation_start` / `observation_end` | 起止日期 |
-| `limit` / `offset` | `100000` / 从 `0` 起累加实际页长度 |
+| `MarketDataError` | 全部公开行情异常的父类 |
+| `InvalidCodeError` | 代码格式错误 |
+| `ConfigurationError` | 参数、来源能力或密钥配置错误 |
+| `RequestError` | 网络或 HTTP 错误；`status_code` 为 HTTP 状态码，`retry_after` 为建议等待秒数 |
+| `DataFormatError` | 来源响应或分页结果异常 |
+| `QuoteNotFoundError` | 单只证券行情缺失 |
+| `AllSourcesFailedError` | 所有候选来源失败；`errors` 为按尝试顺序排列的 `(来源名, 异常)` 列表 |
 
-读取 `observations`，累计条数达到 `count` 时结束。有效记录返回 `date`、UTC 零点的 Unix 秒时间戳 `timestamp`、数值 `value`、`series_id`、`source="fred"`、`raw`；`"."` 缺失值跳过。`get_vix_history` 使用同一接口查询 `VIXCLS`。
-
-账户配置使用 `FRED_API_KEY` 环境变量、客户端 `fred_api_key=` 或单次调用的 `api_key=`。单次参数优先。
-
-## 8. Twelve Data：海外 K 线
-
-请求：`GET https://api.twelvedata.com/time_series`。
-
-| 参数 | 值 |
-| --- | --- |
-| `apikey` | 账户密钥 |
-| `symbol` | 例如 `SPY`、`AAPL` |
-| `interval` | 默认 `1day`，按服务商支持的周期传入 |
-| `outputsize` | 1～5000，默认 5000 |
-| `start_date` / `end_date` | 日期或时间，可选 |
-| `timezone` / `order` | `UTC` / `desc` |
-| `adjust` | `none` / `splits` / `dividends` / `all`，默认 `all` |
-
-读取 `values`，`status="error"` 转为 `DataFormatError`。每条返回 `datetime`、`trade_date`、UTC Unix 秒时间戳 `timestamp`、OHLC、`volume`、`volume_unit="upstream"`、`source="twelvedata"`、`adjust`、响应 `meta` 和原始 `raw`。
-
-`get_twelve_bars` 获取一页；`get_twelve_daily_history` 每页 5000 条，下一页截止时间为本页最早时间前一秒，按时间去重升序排列。`max_pages=100` 为默认上限，达到上限时抛出分页错误。
-
-账户配置使用 `TWELVE_DATA_API_KEY` 环境变量、客户端 `twelve_api_key=` 或单次调用的 `api_key=`。覆盖市场、历史长度与调用额度由账户权限确定。
-
-## 9. 公开行为与验证
-
-网络请求由 `urllib.request` 完成，JSON 与 GBK 文本由标准库解析。默认请求超时 10 秒；网络错误及 HTTP 502/503/504 重试 1 次，退避间隔从 0.5 秒开始。HTTP 错误的 `RequestError` 保存 `status_code` 和 `retry_after`，异常消息仅输出主机及路径。
-
-模拟测试覆盖公开入口、代码格式、分页推进、净值失败切换与冷却、原始字段保留、份额单位换算、账户接口及异步调用。在线请求结果另存于项目 `docs/live-check.json`，以记录的检查时间、样本和状态为准。
-
-来源选择由 `client.py` 管理，来源协议由 `sources/` 管理。修改内部实现时维持本手册的公开函数、参数含义和返回字段。

@@ -7,4 +7,11 @@ dist/
 .coverage
 .ruff_cache/
 .env
+.env.*
+!.env.example
+.pypirc
+*.pem
+*.key
+.agents/*
+!.agents/skills/
 
