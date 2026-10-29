@@ -5,7 +5,18 @@ from .async_client import AsyncMarketClient
 from .client import MarketClient
 from typing import Sequence
 
-from .models import Bar, DateLike, FundNav, FundShares, Instrument, Observation, Quote
+from .models import (
+    Bar,
+    DateLike,
+    ETFComponent,
+    ETFHolding,
+    ETFPcf,
+    FundNav,
+    FundShares,
+    Instrument,
+    Observation,
+    Quote,
+)
 from .stock import get_stock_quote, get_stock_quotes, get_stock_history
 from .index import get_index_quote, get_index_quotes, get_index_history
 from .etf import (
@@ -14,6 +25,8 @@ from .etf import (
     get_etf_history,
     get_fund_nav_history,
     get_etf_catalog,
+    get_etf_pcf,
+    get_etf_holdings,
     get_sse_etf_shares,
 )
 from .exceptions import (
@@ -130,6 +143,8 @@ __all__ = [
     "get_history",
     "get_fund_nav_history",
     "get_etf_catalog",
+    "get_etf_pcf",
+    "get_etf_holdings",
     "get_sse_etf_shares",
     "get_fred_series",
     "get_vix_history",
@@ -159,5 +174,8 @@ __all__ = [
     "Bar",
     "FundNav",
     "FundShares",
+    "ETFComponent",
+    "ETFPcf",
+    "ETFHolding",
     "Observation",
 ]

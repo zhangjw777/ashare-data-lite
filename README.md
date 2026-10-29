@@ -33,6 +33,7 @@ ETF 指交易所交易基金，IOPV 指基金份额参考净值。查询结果�
 | 日线与 5 / 15 / 30 分钟 K 线 | `get_stock_history`、`get_etf_history`、`get_index_history` |
 | 基金历史单位净值 | `get_fund_nav_history` |
 | ETF 目录、上交所 ETF 份额 | `get_etf_catalog`、`get_sse_etf_shares` |
+| 沪深 ETF 最新申赎清单、证券篮子市值占比 | `get_etf_pcf`、`get_etf_holdings` |
 | FRED 经济序列及 VIX | `get_fred_series`、`get_vix_history` |
 | Twelve Data 海外 K 线 | `get_twelve_bars`、`get_twelve_daily_history` |
 
@@ -80,7 +81,7 @@ asyncio.run(main())
 
 ## 数据来源与使用范围
 
-实时行情来自腾讯；历史 K 线来自腾讯、新浪；基金净值来自东方财富；基金份额来自上交所；经济序列与海外行情来自 FRED、Twelve Data。数据源的覆盖范围、延迟、接口格式及访问额度可能变化，使用方应做好超时处理并校验关键数据。账户接口遵循对应服务商的套餐和调用限制。
+实时行情来自腾讯；历史 K 线来自腾讯、新浪；基金净值来自东方财富；基金份额来自上交所；申赎清单来自沪深交易所，证券篮子按腾讯最新价及汇率估值；经济序列与海外行情来自 FRED、Twelve Data。数据源的覆盖范围、延迟、接口格式及访问额度可能变化，使用方应做好超时处理并校验关键数据。账户接口遵循对应服务商的套餐和调用限制。
 
 本项目的 MIT 许可证适用于程序代码。行情数据的使用、存储和再分发遵循各来源的使用条款；交易分析需要结合其他信息校验，并自行承担决策风险。
 

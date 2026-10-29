@@ -144,6 +144,8 @@ print(daily[-1].close)
 | `get_fund_nav_history` | `(code, start=None, end=None, *, sources=None)` | `list[FundNav]` |
 | `get_etf_catalog` | `()` | `dict[str, str]`，六位 ETF 代码到名称的映射 |
 | `get_sse_etf_shares` | `(day)`，统计日期 | `list[FundShares]`，上交所 ETF 份额 |
+| `get_etf_pcf` | `(code)` | `ETFPcf`，最新申购赎回清单 |
+| `get_etf_holdings` | `(code)` | `list[ETFHolding]`，最新证券篮子市值占比，降序排列 |
 
 净值的默认来源顺序为 `["eastmoney_mobile", "eastmoney_web"]`，可用 `sources` 调整优先级。移动端失败后，网页接口重新获取完整区间；同一客户端自动管理请求间隔和冷却状态。
 
@@ -165,6 +167,63 @@ shares = get_sse_etf_shares("2026-10-23")
 | `source` | `str` | 本次实际来源 |
 | `nav` | `float` | FundNav 单位净值，币种随基金份额类别确定 |
 | `shares` | `float \| None` | FundShares 基金份额，单位份 |
+
+### 最新申赎清单与市值占比
+
+PCF（Portfolio Composition File）是基金每日公布的申购赎回清单。两个接口均只接收 ETF 代码，支持六位代码、市场前缀和后缀；从交易所获取最新清单，在内存中解析和计算，每次调用重新取数。深交所从最近一年公告中选择最新文件，周末和长假使用已公布的最近清单。
+
+公开来源：[上交所申购赎回清单](https://www.sse.com.cn/assortment/fund/list/etfinfo/redemptionlist/index.shtml?FUNDID=510300)、[深交所申购赎回清单](https://www.szse.cn/disclosure/fund/currency/index.html?txtJCorDH=159502)。
+
+```python
+from ashare_data import get_etf_pcf, get_etf_holdings
+
+pcf = get_etf_pcf("159502")
+print(pcf.creation_unit, len(pcf.components))
+holdings = get_etf_holdings("159502")
+for row in holdings[:10]:
+    print(row.code, row.quantity, f"{row.weight_pct:.2f}%")
+```
+
+`get_etf_holdings` 支持沪深北港美股票。通常按 `market_value = quantity × price × exchange_rate` 计算，其中价格和人民币汇率均取腾讯最新报价。现金替代标志为 `2` 且清单给出固定替代金额的证券，按该人民币金额估值；`valuation` 标明采用 `quote` 或 `cash_substitute`。`weight_pct = market_value / 全部证券的人民币市值之和 × 100`，例如 `2.23` 表示 `2.23%`。返回全部证券，零数量且替代金额为零的证券占比为零；需要按数量估值的正数量证券行情缺失或汇率缺失时抛出 `QuoteNotFoundError`。报价包含数据源提供的延迟，股票占比随行情变化。
+
+这一占比描述申赎证券篮子的市值构成，总和为 100%。清单的证券数量对应一个最小申赎单位；基金净资产还包括现金、应收应付等项目。`159900` 申赎现金单独保存在 `ETFPcf.components`，`is_cash=True`，其现金替代金额用于申赎结算。`get_etf_pcf` 支持读取交易所 XML 中的股票、债券、黄金等成分。
+
+`ETFPcf` 字段：
+
+| 字段 | 类型 | 含义 |
+| --- | --- | --- |
+| `code` | `str` | 六位 ETF 代码 |
+| `source` | `str` | `sse` 或 `szse` |
+| `creation_unit` | `float` | 最小申赎单位，份 |
+| `nav_per_cu` | `float` | 清单公布的最小申赎单位净值，人民币 |
+| `cash_component` | `float \| None` | 清单公布的现金差额，人民币，可为负 |
+| `components` | `tuple[ETFComponent, ...]` | 完整成分及申赎现金项目 |
+
+`ETFComponent` 字段：
+
+| 字段 | 类型 | 含义 |
+| --- | --- | --- |
+| `code` / `name` | `str` | 成分代码 / 名称，保留交易所原文 |
+| `market` | `str` | 交易所市场代码：`101` 沪、`102` 深、`103` 港、`104` 或 `106` 北、`9999` 其他 |
+| `quantity` | `float` | 一个最小申赎单位的成分数量 |
+| `substitution_flag` | `str` | 交易所原始现金替代标志 |
+| `creation_premium_rate` | `float \| None` | 申购现金替代溢价率，小数，`0.1` 表示 10% |
+| `redemption_discount_rate` | `float \| None` | 赎回现金替代折价率，小数 |
+| `creation_cash_substitute` / `redemption_cash_substitute` | `float \| None` | 申购 / 赎回现金替代金额，人民币；上交所对应同一替代金额字段 |
+| `is_cash` | `bool` | 是否为深交所 `159900` 申赎现金项目 |
+
+`ETFHolding` 字段：
+
+| 字段 | 类型 | 含义 |
+| --- | --- | --- |
+| `code` / `name` / `market` | `str` | 成分代码 / 名称 / 交易所市场代码 |
+| `quantity` | `float` | 一个最小申赎单位的成分数量 |
+| `price` | `float \| None` | 证券最新价格，原币种；现金替代或零数量证券的报价缺失时为 None |
+| `currency` | `str` | `CNY`、`HKD` 或 `USD` |
+| `exchange_rate` | `float` | 一单位原币兑换人民币的金额 |
+| `market_value` | `float` | 一个最小申赎单位内该证券的市值，人民币 |
+| `weight_pct` | `float` | 证券市值占整个证券篮子市值的百分数 |
+| `valuation` | `str` | `quote` 按行情估值；`cash_substitute` 使用清单固定人民币替代金额 |
 
 ## 5. FRED 与海外行情
 

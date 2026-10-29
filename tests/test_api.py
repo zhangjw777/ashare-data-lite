@@ -8,7 +8,17 @@ from datetime import date, timedelta
 from pathlib import Path
 
 import ashare_data
-from ashare_data import Bar, FundNav, FundShares, Observation, OrderLevel, Quote
+from ashare_data import (
+    Bar,
+    ETFComponent,
+    ETFHolding,
+    ETFPcf,
+    FundNav,
+    FundShares,
+    Observation,
+    OrderLevel,
+    Quote,
+)
 from ashare_data.exceptions import (
     AllSourcesFailedError,
     ConfigurationError,
@@ -132,7 +142,17 @@ class FallbackTests(unittest.TestCase):
 
 class ModelTests(unittest.TestCase):
     def test_models_are_frozen_dataclasses(self):
-        for model in (Quote, OrderLevel, Bar, FundNav, FundShares, Observation):
+        for model in (
+            Quote,
+            OrderLevel,
+            Bar,
+            FundNav,
+            FundShares,
+            Observation,
+            ETFComponent,
+            ETFPcf,
+            ETFHolding,
+        ):
             self.assertTrue(is_dataclass(model))
         quote = client_with(lambda *_: record()).get_etf_quote("159941")
         with self.assertRaises(FrozenInstanceError):
@@ -172,7 +192,17 @@ class ModelTests(unittest.TestCase):
         text = docs.read_text(encoding="utf-8")
         for name in ashare_data.__all__:
             self.assertIn(f"`{name}`", text, name)
-        for model in (Quote, OrderLevel, Bar, FundNav, FundShares, Observation):
+        for model in (
+            Quote,
+            OrderLevel,
+            Bar,
+            FundNav,
+            FundShares,
+            Observation,
+            ETFComponent,
+            ETFPcf,
+            ETFHolding,
+        ):
             for field in fields(model):
                 self.assertIn(f"`{field.name}`", text, f"{model.__name__}.{field.name}")
 

@@ -118,6 +118,50 @@ class FundShares(DataModel):
 
 
 @dataclass(frozen=True, slots=True)
+class ETFComponent(DataModel):
+    """一个申赎单位的成分；现金替代金额为人民币，溢折价率为小数。"""
+
+    code: str
+    name: str
+    market: str
+    quantity: float
+    substitution_flag: str
+    creation_premium_rate: float | None
+    redemption_discount_rate: float | None
+    creation_cash_substitute: float | None
+    redemption_cash_substitute: float | None
+    is_cash: bool
+
+
+@dataclass(frozen=True, slots=True)
+class ETFPcf(DataModel):
+    """最新申购赎回清单（PCF）；creation_unit 为份数，金额为人民币。"""
+
+    code: str
+    source: str
+    creation_unit: float
+    nav_per_cu: float
+    cash_component: float | None
+    components: tuple[ETFComponent, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ETFHolding(DataModel):
+    """申赎篮子证券的最新估值；market_value 为人民币，weight_pct 为百分数。"""
+
+    code: str
+    name: str
+    market: str
+    quantity: float
+    price: float | None
+    currency: str
+    exchange_rate: float
+    market_value: float
+    weight_pct: float
+    valuation: str
+
+
+@dataclass(frozen=True, slots=True)
 class Observation(DataModel):
     """经济或市场序列在某一观测日期的数值。"""
 

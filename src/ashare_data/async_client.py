@@ -5,7 +5,17 @@ import asyncio
 from .client import MarketClient
 from typing import Sequence
 
-from .models import Bar, DateLike, FundNav, FundShares, Instrument, Observation, Quote
+from .models import (
+    Bar,
+    DateLike,
+    ETFHolding,
+    ETFPcf,
+    FundNav,
+    FundShares,
+    Instrument,
+    Observation,
+    Quote,
+)
 
 
 class AsyncMarketClient:
@@ -86,6 +96,19 @@ class AsyncMarketClient:
     async def get_etf_catalog(self) -> dict[str, str]:
         """获取场内 ETF 目录，返回六位代码到名称的映射。"""
         return await asyncio.to_thread(self._client.get_etf_catalog)
+
+    async def get_etf_pcf(self, code: str) -> ETFPcf:
+        """获取沪深 ETF 最新申赎清单，含完整成分、数量和现金替代金额；全程内存处理。"""
+        return await asyncio.to_thread(self._client.get_etf_pcf, code)
+
+    async def get_etf_holdings(self, code: str) -> list[ETFHolding]:
+        """用最新申赎清单和行情计算全部证券市值占比，降序返回，weight_pct 使用百分数。
+
+        市值=数量×最新价×人民币汇率，占比的分母为全部证券市值；支持沪深北港美股票。
+        必须现金替代的证券按清单固定金额估值，valuation 标明估值方式。
+        每次调用在内存中重新计算；行情或汇率缺失时抛出 QuoteNotFoundError。
+        """
+        return await asyncio.to_thread(self._client.get_etf_holdings, code)
 
     async def get_sse_etf_shares(self, day: DateLike) -> list[FundShares]:
         """获取上交所指定统计日的 ETF 份额，shares 单位为份。"""

@@ -14,10 +14,21 @@ from ._http import HttpClient
 from ._utils import date_range, is_index, normalize_symbol, source_order
 from .exceptions import ConfigurationError, QuoteNotFoundError
 from .fallback import first_success
-from .models import Bar, DateLike, FundNav, FundShares, Instrument, Observation, Quote
+from .models import (
+    Bar,
+    DateLike,
+    ETFHolding,
+    ETFPcf,
+    FundNav,
+    FundShares,
+    Instrument,
+    Observation,
+    Quote,
+)
 from .sources.eastmoney import EastmoneySource
 from .sources.exchanges import ExchangeSource
 from .sources.fred import FredSource
+from .sources.pcf import PcfSource
 from .sources.sina import SinaSource
 from .sources.tencent import TencentSource
 from .sources.twelvedata import TwelveDataSource
@@ -41,6 +52,7 @@ class MarketClient:
         self._sina = SinaSource(self.http)
         self._eastmoney = EastmoneySource(self.http)
         self._exchanges = ExchangeSource(self.http)
+        self._pcf = PcfSource(self.http)
         self._fred = FredSource(self.http, fred_api_key or os.getenv("FRED_API_KEY"))
         self._twelve = TwelveDataSource(
             self.http, twelve_api_key or os.getenv("TWELVE_DATA_API_KEY")
@@ -140,6 +152,24 @@ class MarketClient:
     def get_sse_etf_shares(self, day: DateLike) -> list[FundShares]:
         """获取上交所指定统计日的 ETF 份额，shares 单位为份。"""
         return shares_models(self._exchanges.sse_shares(day))
+
+    def get_etf_pcf(self, code: str) -> ETFPcf:
+        """获取沪深 ETF 最新申购赎回清单，含完整成分、数量和现金替代信息。
+
+        code 支持六位代码、市场前缀或后缀。XML 在内存解析，每次调用读取最新公告。
+        返回 ETFPcf，金额为人民币，quantity 对应一个最小申赎单位。
+        """
+        return self._pcf.pcf(code)
+
+    def get_etf_holdings(self, code: str) -> list[ETFHolding]:
+        """使用最新申赎清单和腾讯行情计算证券篮子市值占比，按占比降序返回。
+
+        支持沪深北港美股票；市值为数量×最新价×人民币汇率，占比为市值/全部证券市值×100。
+        必须现金替代的证券使用清单固定金额；返回全部证券，weight_pct=2.23 表示 2.23%。
+        申赎现金项目见 get_etf_pcf。
+        每次调用在内存中重新取数和计算；正数量证券行情或汇率缺失时抛出 QuoteNotFoundError。
+        """
+        return self._pcf.holdings(code)
 
     def get_fred_series(
         self,
