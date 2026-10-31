@@ -174,6 +174,34 @@ class PcfTests(unittest.TestCase):
         self.assertEqual(rows[1].valuation, "cash_substitute")
         self.assertAlmostEqual(rows[1].weight_pct, 1000 / 36000 * 100)
 
+    def test_us_share_classes_use_dot_quotes_and_keep_pcf_codes(self):
+        pcf = self.client.get_etf_pcf("159502")
+        for codes in (("BF/B", "BRK/B"), ("BF.B", "BRK.B")):
+            components = tuple(
+                replace(pcf.components[1], code=code, quantity=1) for code in codes
+            )
+
+            def handler(url, options):
+                if "qt.gtimg" in url and "wh" not in url:
+                    self.assertEqual(url.split("q=")[1], "usBF.B,usBRK.B")
+                    return 'v_usBF.B="200~Brown Forman~BF.B.N~28.71";\nv_usBRK.B="200~Berkshire~BRK.B.N~542.49";'
+                return response(url, options)
+
+            self.http.handler = handler
+            with (
+                self.subTest(codes=codes),
+                patch.object(
+                    self.client._pcf,
+                    "pcf",
+                    return_value=replace(pcf, components=components),
+                ),
+            ):
+                rows = self.client.get_etf_holdings("513500")
+            self.assertEqual({row.code for row in rows}, set(codes))
+            self.assertEqual([row.price for row in rows], [542.49, 28.71])
+            self.assertAlmostEqual(rows[0].weight_pct, 542.49 / (542.49 + 28.71) * 100)
+            self.assertAlmostEqual(sum(row.weight_pct for row in rows), 100)
+
     def test_malformed_and_wrong_fund_responses(self):
         for content in (
             b"<html>",

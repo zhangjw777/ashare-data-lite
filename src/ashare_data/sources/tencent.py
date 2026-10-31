@@ -9,7 +9,7 @@ from ..exceptions import ConfigurationError, DataFormatError
 
 QUOTE_URL = "https://qt.gtimg.cn/q="
 HISTORY_URL = "https://proxy.finance.qq.com/ifzqgtimg/appstock/app/newfqkline/get"
-RECORD = re.compile(r'v_([A-Za-z0-9_]+)="(.*?)";', re.DOTALL)
+RECORD = re.compile(r'v_([A-Za-z0-9_.]+)="(.*?)";', re.DOTALL)
 
 
 def _field(fields: list[str], index: int) -> str:

@@ -102,8 +102,11 @@ def _quote_symbol(component):
     prefix = prefixes.get(component.market)
     if prefix:
         return prefix + component.code.zfill(5 if prefix == "hk" else 6)
-    if component.market == "9999" and re.fullmatch(r"[A-Z][A-Z0-9.]*", component.code):
-        return "us" + component.code.replace(".", "_")
+    if component.market == "9999" and re.fullmatch(
+        r"[A-Z][A-Z0-9]*(?:[./][A-Z0-9]+)?", component.code
+    ):
+        # 清单的类别股分隔符可能为斜杠，腾讯查询及响应统一使用点号。
+        return "us" + component.code.replace("/", ".")
     raise QuoteNotFoundError(
         f"{component.code} 市场 {component.market} 需要对应的行情来源"
     )

@@ -174,6 +174,8 @@ PCF（Portfolio Composition File）是基金每日公布的申购赎回清单。
 
 公开来源：[上交所申购赎回清单](https://www.sse.com.cn/assortment/fund/list/etfinfo/redemptionlist/index.shtml?FUNDID=510300)、[深交所申购赎回清单](https://www.szse.cn/disclosure/fund/currency/index.html?txtJCorDH=159502)。
 
+美股类别股支持清单中的 `BF/B`、`BRK/B` 及点号格式 `BF.B`、`BRK.B`，查询腾讯行情时统一使用点号，返回的 `code` 保留清单原始代码。
+
 ```python
 from ashare_data import get_etf_pcf, get_etf_holdings
 
