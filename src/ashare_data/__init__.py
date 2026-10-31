@@ -40,7 +40,7 @@ from .exceptions import (
 )
 from .models import OrderLevel
 
-__version__ = "0.1.1"
+__version__ = "0.1.2"
 
 
 def get_quotes(codes: Sequence[str], *, instrument: Instrument = "auto") -> list[Quote]:
